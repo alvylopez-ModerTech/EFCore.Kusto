@@ -140,7 +140,37 @@ public sealed class KustoCommand : DbCommand
             .GetAwaiter()
             .GetResult();
 
+    /// <summary>
+    /// Executes the command, serialising and retrying data-management commands that target the
+    /// same table when <see cref="KustoOptionsExtension.SerializeDataManagementCommands"/> is on.
+    /// </summary>
+    /// <remarks>
+    /// Kusto aborts rather than queues a second data-management command against a table, so an
+    /// unguarded concurrent writer surfaces as a hard failure. See
+    /// <see cref="KustoDataManagementGate"/> for the measurements behind this.
+    /// Queries are never gated - only commands that mutate a single table.
+    /// </remarks>
     protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(
+        CommandBehavior behavior,
+        CancellationToken cancellationToken)
+    {
+        if (_options.SerializeDataManagementCommands
+            && ResolveIsControlCommand(IsControlCommand, CommandText)
+            && KustoDataManagementGate.GetTargetTable(CommandText) is { } targetTable)
+        {
+            return await KustoDataManagementGate.RunAsync(
+                _clusterUrl,
+                _database,
+                targetTable,
+                _options.DataManagementRetryCount,
+                () => ExecuteCoreAsync(behavior, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return await ExecuteCoreAsync(behavior, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<DbDataReader> ExecuteCoreAsync(
         CommandBehavior behavior,
         CancellationToken cancellationToken)
     {

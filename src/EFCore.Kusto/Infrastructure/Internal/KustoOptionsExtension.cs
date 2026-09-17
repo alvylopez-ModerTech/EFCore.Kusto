@@ -58,6 +58,20 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
     /// </summary>
     public bool TreatNullAsEmpty { get; private set; }
 
+    /// <summary>
+    /// Gets whether data-management commands targeting the same table are serialised in-process
+    /// and retried when Kusto aborts them for concurrency. Defaults to <see langword="true"/>:
+    /// Kusto refuses concurrent data-management commands on one table outright, so waiting is
+    /// strictly better than the failure it replaces. See <see cref="Data.KustoDataManagementGate"/>.
+    /// </summary>
+    public bool SerializeDataManagementCommands { get; private set; } = true;
+
+    /// <summary>
+    /// Gets how many times a data-management command aborted by a concurrent writer is retried.
+    /// Defaults to 4. Zero still serialises in-process but never retries.
+    /// </summary>
+    public int DataManagementRetryCount { get; private set; } = 4;
+
     public KustoOptionsExtension() { }
 
     private KustoOptionsExtension(KustoOptionsExtension copyFrom)
@@ -72,6 +86,8 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
         ApplicationClientSecret = copyFrom.ApplicationClientSecret;
         Credential = copyFrom.Credential;
         TreatNullAsEmpty = copyFrom.TreatNullAsEmpty;
+        SerializeDataManagementCommands = copyFrom.SerializeDataManagementCommands;
+        DataManagementRetryCount = copyFrom.DataManagementRetryCount;
     }
 
     protected override RelationalOptionsExtension Clone()
@@ -152,6 +168,20 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
         return clone;
     }
 
+    /// <summary>
+    /// Returns a copy of the extension with the data-management concurrency behaviour set.
+    /// </summary>
+    public KustoOptionsExtension WithDataManagementConcurrency(bool serialize, int retryCount)
+    {
+        if (retryCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(retryCount), retryCount, "Retry count cannot be negative.");
+
+        var clone = new KustoOptionsExtension(this);
+        clone.SerializeDataManagementCommands = serialize;
+        clone.DataManagementRetryCount = retryCount;
+        return clone;
+    }
+
     public override void ApplyServices(IServiceCollection services)
         => services.AddEntityFrameworkKusto();
 
@@ -186,7 +216,10 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
                     _extension.ApplicationTenantId,
                     _extension.ApplicationClientSecret,
                     _extension.Credential?.GetType()),
-                _extension.TreatNullAsEmpty);
+                HashCode.Combine(
+                    _extension.TreatNullAsEmpty,
+                    _extension.SerializeDataManagementCommands,
+                    _extension.DataManagementRetryCount));
 
         public override bool ShouldUseSameServiceProvider(DbContextOptionsExtensionInfo other)
         {

@@ -103,6 +103,33 @@ public static class KustoDbContextOptionsBuilderExtensions
     /// </summary>
     /// <param name="builder">The Kusto options builder being configured.</param>
     /// <param name="enabled">Whether the rewrite is enabled.</param>
+    /// <summary>
+    /// Controls how data-management commands (<c>.update</c>, <c>.delete</c>, <c>.ingest</c>, ...)
+    /// that target the same table behave when they overlap.
+    /// </summary>
+    /// <remarks>
+    /// Kusto allows only one data-management operation per table at a time and aborts the loser
+    /// rather than queuing it. With this enabled (the default) such commands are serialised within
+    /// the process and retried with backoff when a writer in <i>another</i> process aborts them.
+    /// Disable it only if the application already guarantees a single writer per table.
+    /// </remarks>
+    /// <param name="builder">The options builder.</param>
+    /// <param name="enabled">Whether to serialise and retry. Default <see langword="true"/>.</param>
+    /// <param name="retryCount">Retries after an abort. Default 4; 0 serialises without retrying.</param>
+    public static KustoDbContextOptionsBuilder SerializeDataManagementCommands(
+        this KustoDbContextOptionsBuilder builder,
+        bool enabled = true,
+        int retryCount = 4)
+    {
+        var ext = builder.OptionsBuilder.Options.FindExtension<KustoOptionsExtension>()
+                  ?? new KustoOptionsExtension();
+
+        ext = ext.WithDataManagementConcurrency(enabled, retryCount);
+        ((IDbContextOptionsBuilderInfrastructure)builder.OptionsBuilder).AddOrUpdateExtension(ext);
+
+        return builder;
+    }
+
     public static KustoDbContextOptionsBuilder UseIsEmptyForStringIsNull(
         this KustoDbContextOptionsBuilder builder,
         bool enabled = true)
