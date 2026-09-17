@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+### Added
+- **Data-management commands targeting the same table are now serialised and retried** (`KustoDataManagementGate`; configure with `SerializeDataManagementCommands(enabled, retryCount)` on `KustoDbContextOptionsBuilder`). Kusto permits only one data-management operation per table at a time and *aborts* the loser rather than queuing it, with messages such as `The operation was aborted because there is another operation currently working on ...` or `database metadata was changed during the attempt`. Measured on a 2-node `Standard_E2ads_v5` cluster: four concurrent writers against one table failed **14 of 35** batches (40%), while the same load spread across separate tables failed none; a single `.delete` issued against a table with an `.update` already in flight was enough to abort the update.
+
+  The gate serialises such commands within the process, so one process never collides with itself, and retries - with exponential backoff and jitter - the aborts it cannot prevent because the other writer is in a different process. Queries are never gated; only commands that mutate a single table.
+
+  This is a **pre-existing Kusto behaviour, independent of how update commands are generated** - it applies to the current `.update` shape and to any replacement equally. Enabled by default because Kusto refuses the concurrency outright, so waiting is strictly better than the failure it replaces; disable it with `SerializeDataManagementCommands(false)` if the application already guarantees a single writer per table. It is deliberately *not* a distributed lock: a durable cross-process lock needs a store this provider does not own.
+
 ## [0.2.11]
 ### Fixed
 - `Any(predicate)`/`All(predicate)` over a shadow array-column property (`EF.Property<T>(entity, "col").AsQueryable().Any/All(...)`) silently discarded the predicate whenever it wasn't a single equality/inequality against one constant, collapsing to "array is non-empty" regardless of what the predicate actually checked. Compound predicates (`Any(a => a == x || a == y)`, `All(a => a != x && a != y)`) now translate correctly into repeated array-membership checks; anything outside that shape (mixed `&&`/`||`, ranges, method calls) now throws `NotSupportedException` instead of silently returning the wrong answer.
