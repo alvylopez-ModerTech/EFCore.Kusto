@@ -67,6 +67,20 @@ public static class KustoLiteral
         _ => "dynamic(null)",
     };
 
+    internal static string FromDynamic(string expression, string? kqlType) => kqlType switch
+    {
+        "string" => $"tostring({expression})",
+        "guid" => $"toguid({expression})",
+        "bool" => $"tobool({expression})",
+        "date" or "datetime" => $"todatetime({expression})",
+        "int" => $"toint({expression})",
+        "long" => $"tolong({expression})",
+        "real" or "double" => $"toreal({expression})",
+        "decimal" => $"todecimal({expression})",
+        "timespan" => $"totimespan({expression})",
+        _ => expression,
+    };
+
     private static string Escape(string s)
         => s.Replace("\\", "\\\\")
             .Replace("\"", "\\\"")

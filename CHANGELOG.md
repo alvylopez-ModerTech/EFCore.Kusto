@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+### Changed
+- **`SaveChanges` on modified entities no longer emits one `union` leg per row.** `AppendUpdateOperation` built `let A = union(T | where pk == k1 | extend ..., (T | where pk == k2 | extend ...), ...)`, so the query-operator count grew with the batch size: a 1000-row batch became a ~470 KB command with 1000 legs, measured at ~35-47 s and ~30-71 CPU-seconds on a 2-node `Standard_E2ads_v5` cluster against a 443-column table. Each entity now contributes one inline `datatable` row - its key plus a `dynamic` bag of only the columns it changed - and the batch resolves each column once via `lookup` + `bag_has_key`. The same batch measures **~2 s and ~1 CPU-second**, and cost follows the batch's union of changed columns rather than its row count.
+
+  Three behaviours are preserved, each easy to lose in a change of this kind:
+  - rows in one batch may change **different** column sets;
+  - a column a row does not mention keeps its **live** value, so a concurrent writer that changed a different column on that row is not rolled back;
+  - `bag_has_key` separates "clear this column" from "leave it alone", which a null check cannot.
+
+  The store-type to KQL-conversion mapping lives in `KustoLiteral` beside `TypedNull`, which already owns that vocabulary. `BuildJsonPayload` and the change bag share one JSON writer differing only in whether nulls are skipped. `BuildExtendClause` is removed - nothing called it once the union shape was gone.
+
+### Fixed
+- **A batch is now bounded by command bytes as well as row count.** Kusto rejects a command whose text exceeds 2 MiB (`SYN0009: Query length ... too large (max: 2097152)`), but `MaxBatchSize` counts rows - the wrong unit when row size varies widely. Measured on a 443-column table: 1000 rows changing ten small columns is ~0.12 MB and succeeds, while 1000 rows each carrying an 8000-character text column is ~8.1 MB and the entire batch fails; the practical ceiling is ~250 such rows. This affected the previous `union` shape identically (~8.5 MB for the same data), so it was a pre-existing limit that neither shape handled. `TryAddCommand` now refuses a command that would overflow the limit, which is EF's signal to close the batch and continue in the next one. The first command in a batch is always accepted, so a single oversized row surfaces Kusto's own error instead of looping.
+
 ## [0.2.11]
 ### Fixed
 - `Any(predicate)`/`All(predicate)` over a shadow array-column property (`EF.Property<T>(entity, "col").AsQueryable().Any/All(...)`) silently discarded the predicate whenever it wasn't a single equality/inequality against one constant, collapsing to "array is non-empty" regardless of what the predicate actually checked. Compound predicates (`Any(a => a == x || a == y)`, `All(a => a != x && a != y)`) now translate correctly into repeated array-membership checks; anything outside that shape (mixed `&&`/`||`, ranges, method calls) now throws `NotSupportedException` instead of silently returning the wrong answer.
