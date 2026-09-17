@@ -2,17 +2,10 @@
 
 ## [Unreleased]
 ### Changed
-- **`SaveChanges` on modified entities no longer emits one `union` leg per row.** `AppendUpdateOperation` built `let A = union(T | where pk == k1 | extend ..., (T | where pk == k2 | extend ...), ...)`, so the query-operator count grew with the batch size: a 1000-row batch became a ~470 KB command with 1000 legs, measured at ~35-47 s and ~30-71 CPU-seconds on a 2-node `Standard_E2ads_v5` cluster against a 443-column table. Each entity now contributes one inline `datatable` row - its key plus a `dynamic` bag of only the columns it changed - and the batch resolves each column once via `lookup` + `bag_has_key`. The same batch measures **~2 s and ~1 CPU-second**, and cost follows the batch's union of changed columns rather than its row count.
-
-  Three behaviours are preserved, each easy to lose in a change of this kind:
-  - rows in one batch may change **different** column sets;
-  - a column a row does not mention keeps its **live** value, so a concurrent writer that changed a different column on that row is not rolled back;
-  - `bag_has_key` separates "clear this column" from "leave it alone", which a null check cannot.
-
-  The store-type to KQL-conversion mapping lives in `KustoLiteral` beside `TypedNull`, which already owns that vocabulary. `BuildJsonPayload` and the change bag share one JSON writer differing only in whether nulls are skipped. `BuildExtendClause` is removed - nothing called it once the union shape was gone.
+- Batched updates now send the changed values as an inline `datatable` joined on the key, instead of one `union` leg per row. The old shape grew the query-operator count with the batch size: 1000 rows became a ~470 KB command with 1000 legs, measured at ~35 s and ~30 CPU-seconds against a 443-column table; the same batch now takes ~2 s and ~1 CPU-second. Each row carries only the columns it changed, and any column it does not mention keeps its live value, so two rows in one batch may change different columns without overwriting each other. `bag_has_key` is used rather than a null check so that clearing a column stays distinguishable from leaving it alone.
 
 ### Fixed
-- **A batch is now bounded by command bytes as well as row count.** Kusto rejects a command whose text exceeds 2 MiB (`SYN0009: Query length ... too large (max: 2097152)`), but `MaxBatchSize` counts rows - the wrong unit when row size varies widely. Measured on a 443-column table: 1000 rows changing ten small columns is ~0.12 MB and succeeds, while 1000 rows each carrying an 8000-character text column is ~8.1 MB and the entire batch fails; the practical ceiling is ~250 such rows. This affected the previous `union` shape identically (~8.5 MB for the same data), so it was a pre-existing limit that neither shape handled. `TryAddCommand` now refuses a command that would overflow the limit, which is EF's signal to close the batch and continue in the next one. The first command in a batch is always accepted, so a single oversized row surfaces Kusto's own error instead of looping.
+- A batch is now also bounded by command size. Kusto rejects a command over 2 MiB, but `MaxBatchSize` counts rows: 1000 rows carrying an 8000-character text column reached ~8 MB and the whole batch failed. This affected the previous shape identically.
 
 ## [0.2.11]
 ### Fixed
