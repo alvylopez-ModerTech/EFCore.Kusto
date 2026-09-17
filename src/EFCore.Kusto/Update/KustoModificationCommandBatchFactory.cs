@@ -19,6 +19,7 @@ public class KustoModificationCommandBatch(
 {
     private string? _table;
     private EntityState? _operation;
+    private const int MaxCommandBytes = 1_500_000;
 
     public override bool TryAddCommand(IReadOnlyModificationCommand command)
     {
@@ -30,6 +31,8 @@ public class KustoModificationCommandBatch(
         else if (!string.Equals(_table, command.TableName, StringComparison.Ordinal))
             return false;
         else if (_operation != command.EntityState)
+            return false;
+        else if (SqlBuilder.Length > MaxCommandBytes)
             return false;
 
         return base.TryAddCommand(command);
