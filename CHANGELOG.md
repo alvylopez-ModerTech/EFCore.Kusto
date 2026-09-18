@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+### Changed
+- Batched updates now send the changed values as an inline `datatable` joined on the key, instead of one `union` leg per row. The old shape grew the query-operator count with the batch size: 1000 rows became a ~470 KB command with 1000 legs, measured at ~35 s and ~30 CPU-seconds against a 443-column table; the same batch now takes ~2 s and ~1 CPU-second. Each row carries only the columns it changed, and any column it does not mention keeps its live value, so two rows in one batch may change different columns without overwriting each other. `bag_has_key` is used rather than a null check so that clearing a column stays distinguishable from leaving it alone.
+
+### Fixed
+- A batch is now also bounded by command size. Kusto rejects a command over 2 MiB, but `MaxBatchSize` counts rows: 1000 rows carrying an 8000-character text column reached ~8 MB and the whole batch failed. This affected the previous shape identically.
+
 ## [0.2.11]
 ### Fixed
 - `Any(predicate)`/`All(predicate)` over a shadow array-column property (`EF.Property<T>(entity, "col").AsQueryable().Any/All(...)`) silently discarded the predicate whenever it wasn't a single equality/inequality against one constant, collapsing to "array is non-empty" regardless of what the predicate actually checked. Compound predicates (`Any(a => a == x || a == y)`, `All(a => a != x && a != y)`) now translate correctly into repeated array-membership checks; anything outside that shape (mixed `&&`/`||`, ranges, method calls) now throws `NotSupportedException` instead of silently returning the wrong answer.

@@ -19,6 +19,7 @@ public class KustoModificationCommandBatch(
 {
     private string? _table;
     private EntityState? _operation;
+    private const int MaxCommandBytes = 1_500_000;
 
     public override bool TryAddCommand(IReadOnlyModificationCommand command)
     {
@@ -31,6 +32,8 @@ public class KustoModificationCommandBatch(
             return false;
         else if (_operation != command.EntityState)
             return false;
+        else if (SqlBuilder.Length > MaxCommandBytes)
+            return false;
 
         return base.TryAddCommand(command);
     }
@@ -39,19 +42,29 @@ public class KustoModificationCommandBatch(
     {
         if (SqlBuilder.ToString().StartsWith(".update"))
         {
-            var predicates = ModificationCommands
-                .Select(KustoUpdateSqlGenerator.BuildPredicate)
-                .Distinct();
-
-            var combinedPredicate = string.Join(" or ", predicates);
-
-            var sql = SqlBuilder.ToString()
-                .Replace("__PREDICATE__", combinedPredicate);
-
-            SqlBuilder.Clear();
-            SqlBuilder.Append(sql + ";");
+            AppendUpdateTail();
         }
 
         base.Complete(moreBatchesExpected);
+    }
+
+    private void AppendUpdateTail()
+    {
+        var table = ModificationCommands[0].TableName;
+        var keyColumns = string.Join(", ", ModificationCommands[0].ColumnModifications
+            .Where(c => c.IsKey)
+            .Select(c => c.ColumnName));
+
+        var matchesAnyKey = string.Join(" or ", ModificationCommands
+            .Select(KustoUpdateSqlGenerator.BuildPredicate)
+            .Distinct());
+
+        SqlBuilder.AppendLine();
+        SqlBuilder.AppendLine("];");
+        SqlBuilder.AppendLine($"let D = {table} | where {matchesAnyKey};");
+        SqlBuilder.AppendLine($"let A = {table} | where {matchesAnyKey}");
+        SqlBuilder.AppendLine($"  | lookup kind=inner (U) on {keyColumns}");
+        SqlBuilder.AppendLine($"  | extend {KustoUpdateSqlGenerator.AssignChangedColumns(ModificationCommands)}");
+        SqlBuilder.Append("  | project-away changes;");
     }
 }
