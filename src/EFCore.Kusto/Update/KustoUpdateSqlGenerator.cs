@@ -110,9 +110,9 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
     internal static string AssignChangedColumns(IEnumerable<IReadOnlyModificationCommand> commands)
         => string.Join(", ", commands
             .SelectMany(c => c.ColumnModifications.Where(m => m.IsWrite))
-            .GroupBy(m => m.ColumnName, StringComparer.Ordinal)
-            .Select(g => $"{g.Key} = iff(bag_has_key(changes, '{g.Key}'), " +
-                         $"{KustoLiteral.FromDynamic($"changes['{g.Key}']", g.First().ColumnType)}, {g.Key})"));
+            .Select(m => m.ColumnName)
+            .Distinct(StringComparer.Ordinal)
+            .Select(c => $"{c} = iff(bag_has_key(changes, '{c}'), changes['{c}'], {c})"));
 
     private static IEnumerable<IColumnModification> KeyColumns(IReadOnlyModificationCommand command)
         => command.ColumnModifications.Where(c => c.IsKey);
