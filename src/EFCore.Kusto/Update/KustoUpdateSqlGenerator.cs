@@ -81,20 +81,28 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
         IReadOnlyModificationCommand command,
         int commandPosition, out bool requiresTransaction)
     {
-        if (commandPosition == 0)
-        {
-            commandStringBuilder.AppendLine($".update table {command.TableName} delete D append A <|");
-            commandStringBuilder.AppendLine($"let U = datatable({ChangeTableSchema(command)}) [");
-        }
-        else
-        {
-            commandStringBuilder.AppendLine(",");
-        }
-
-        commandStringBuilder.Append(ChangeTableRow(command));
-
         requiresTransaction = false;
         return ResultSetMapping.NoResults;
+    }
+
+    internal static string UpdateCommand(IEnumerable<IReadOnlyModificationCommand> section)
+    {
+        var commands = section.ToList();
+        var table = commands[0].TableName;
+        var keyColumns = string.Join(", ", KeyColumns(commands[0]).Select(c => c.ColumnName));
+        var matchesAnyKey = string.Join(" or ", commands.Select(BuildPredicate).Distinct());
+
+        return new StringBuilder()
+            .AppendLine($".update table {table} delete D append A <|")
+            .AppendLine($"let U = datatable({ChangeTableSchema(commands[0])}) [")
+            .AppendLine(string.Join("," + Environment.NewLine, commands.Select(ChangeTableRow)))
+            .AppendLine("];")
+            .AppendLine($"let D = {table} | where {matchesAnyKey};")
+            .AppendLine($"let A = {table} | where {matchesAnyKey}")
+            .AppendLine($"  | lookup kind=inner (U) on {keyColumns}")
+            .AppendLine($"  | extend {AssignChangedColumns(commands)}")
+            .Append("  | project-away changes;")
+            .ToString();
     }
 
     private static string ChangeTableSchema(IReadOnlyModificationCommand command)
@@ -107,7 +115,7 @@ public class KustoUpdateSqlGenerator : IUpdateSqlGenerator
             .Select(c => KustoLiteral.Format(c.Value ?? c.OriginalValue, c.ColumnType))
             .Append($"dynamic({BuildJsonPayload(command, skipNulls: false)})"));
 
-    internal static string AssignChangedColumns(IEnumerable<IReadOnlyModificationCommand> commands)
+    private static string AssignChangedColumns(IEnumerable<IReadOnlyModificationCommand> commands)
         => string.Join(", ", commands
             .SelectMany(c => c.ColumnModifications.Where(m => m.IsWrite))
             .Select(m => m.ColumnName)

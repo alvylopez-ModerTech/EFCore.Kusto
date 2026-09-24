@@ -1,19 +1,27 @@
+using EFCore.Kusto.Infrastructure.Internal;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Update;
 
 namespace EFCore.Kusto.Update;
 
-public class KustoModificationCommandBatchFactory(ModificationCommandBatchFactoryDependencies dependencies)
+public class KustoModificationCommandBatchFactory(
+    ModificationCommandBatchFactoryDependencies dependencies,
+    IDbContextOptions options)
     : IModificationCommandBatchFactory
 {
+    private readonly int _maxUpdateCommandLength =
+        options.FindExtension<KustoOptionsExtension>()!.MaxUpdateCommandLength;
+
     public ModificationCommandBatch Create()
     {
-        return new KustoModificationCommandBatch(dependencies);
+        return new KustoModificationCommandBatch(dependencies, _maxUpdateCommandLength);
     }
 }
 
 public class KustoModificationCommandBatch(
     ModificationCommandBatchFactoryDependencies dependencies,
+    int maxUpdateCommandLength,
     int? maxBatchSize = null)
     : AffectedCountModificationCommandBatch(dependencies, maxBatchSize)
 {
@@ -37,31 +45,50 @@ public class KustoModificationCommandBatch(
 
     public override void Complete(bool moreBatchesExpected)
     {
-        if (SqlBuilder.ToString().StartsWith(".update"))
+        if (_operation == EntityState.Modified)
         {
-            AppendUpdateTail();
+            AppendUpdateScript();
         }
 
         base.Complete(moreBatchesExpected);
     }
 
-    private void AppendUpdateTail()
+    private void AppendUpdateScript()
     {
-        var table = ModificationCommands[0].TableName;
-        var keyColumns = string.Join(", ", ModificationCommands[0].ColumnModifications
-            .Where(c => c.IsKey)
-            .Select(c => c.ColumnName));
+        SqlBuilder.AppendLine(".execute database script with (ThrowOnErrors=true)");
+        SqlBuilder.AppendLine("<|");
 
-        var matchesAnyKey = string.Join(" or ", ModificationCommands
-            .Select(KustoUpdateSqlGenerator.BuildPredicate)
-            .Distinct());
+        var remaining = ModificationCommands;
+        while (remaining.Count > 0)
+        {
+            var count = CommandsThatFit(remaining);
+            SqlBuilder.AppendLine(KustoUpdateSqlGenerator.UpdateCommand(remaining.Take(count)));
+            SqlBuilder.AppendLine();
+            remaining = remaining.Skip(count).ToList();
+        }
+    }
 
-        SqlBuilder.AppendLine();
-        SqlBuilder.AppendLine("];");
-        SqlBuilder.AppendLine($"let D = {table} | where {matchesAnyKey};");
-        SqlBuilder.AppendLine($"let A = {table} | where {matchesAnyKey}");
-        SqlBuilder.AppendLine($"  | lookup kind=inner (U) on {keyColumns}");
-        SqlBuilder.AppendLine($"  | extend {KustoUpdateSqlGenerator.AssignChangedColumns(ModificationCommands)}");
-        SqlBuilder.Append("  | project-away changes;");
+    private int CommandsThatFit(IReadOnlyList<IReadOnlyModificationCommand> commands)
+    {
+        if (Fits(commands.Count))
+        {
+            return commands.Count;
+        }
+
+        var fits = 1;
+        var overflows = commands.Count;
+        while (overflows - fits > 1)
+        {
+            var middle = (fits + overflows) / 2;
+            if (Fits(middle))
+                fits = middle;
+            else
+                overflows = middle;
+        }
+
+        return fits;
+
+        bool Fits(int count)
+            => KustoUpdateSqlGenerator.UpdateCommand(commands.Take(count)).Length <= maxUpdateCommandLength;
     }
 }
