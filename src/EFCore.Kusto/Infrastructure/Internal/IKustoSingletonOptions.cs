@@ -15,4 +15,10 @@ public interface IKustoSingletonOptions : ISingletonOptions
     /// <c>isempty()</c>/<c>isnotempty()</c> instead of <c>isnull()</c>/<c>isnotnull()</c>.
     /// </summary>
     bool TreatNullAsEmpty { get; }
+
+    /// <summary>
+    /// The maximum length, in characters, of each <c>.update</c> command in the script that applies a
+    /// batch of updates.
+    /// </summary>
+    int MaxUpdateCommandLength { get; }
 }

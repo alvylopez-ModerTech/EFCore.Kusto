@@ -12,12 +12,15 @@ public class KustoSingletonOptions : IKustoSingletonOptions
 {
     public virtual bool TreatNullAsEmpty { get; private set; }
 
+    public virtual int MaxUpdateCommandLength { get; private set; }
+
     public virtual void Initialize(IDbContextOptions options)
     {
         var kustoOptions = options.FindExtension<KustoOptionsExtension>();
         if (kustoOptions != null)
         {
             TreatNullAsEmpty = kustoOptions.TreatNullAsEmpty;
+            MaxUpdateCommandLength = kustoOptions.MaxUpdateCommandLength;
         }
     }
 
@@ -29,6 +32,14 @@ public class KustoSingletonOptions : IKustoSingletonOptions
         {
             throw new InvalidOperationException(
                 "The 'TreatNullAsEmpty' option was changed after the internal service provider was built. "
+                + "This can happen when a shared service provider is reused across DbContextOptions with "
+                + "different Kusto configuration.");
+        }
+
+        if (kustoOptions != null && MaxUpdateCommandLength != kustoOptions.MaxUpdateCommandLength)
+        {
+            throw new InvalidOperationException(
+                "The 'MaxUpdateCommandLength' option was changed after the internal service provider was built. "
                 + "This can happen when a shared service provider is reused across DbContextOptions with "
                 + "different Kusto configuration.");
         }

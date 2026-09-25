@@ -203,7 +203,8 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
                     _extension.ApplicationTenantId,
                     _extension.ApplicationClientSecret,
                     _extension.Credential?.GetType()),
-                _extension.TreatNullAsEmpty);
+                _extension.TreatNullAsEmpty,
+                _extension.MaxUpdateCommandLength);
 
         public override bool ShouldUseSameServiceProvider(DbContextOptionsExtensionInfo other)
         {

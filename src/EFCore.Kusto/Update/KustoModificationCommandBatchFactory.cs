@@ -1,21 +1,17 @@
 using EFCore.Kusto.Infrastructure.Internal;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Update;
 
 namespace EFCore.Kusto.Update;
 
 public class KustoModificationCommandBatchFactory(
     ModificationCommandBatchFactoryDependencies dependencies,
-    IDbContextOptions options)
+    IKustoSingletonOptions kustoOptions)
     : IModificationCommandBatchFactory
 {
-    private readonly int _maxUpdateCommandLength =
-        options.FindExtension<KustoOptionsExtension>()!.MaxUpdateCommandLength;
-
     public ModificationCommandBatch Create()
     {
-        return new KustoModificationCommandBatch(dependencies, _maxUpdateCommandLength);
+        return new KustoModificationCommandBatch(dependencies, kustoOptions.MaxUpdateCommandLength);
     }
 }
 
