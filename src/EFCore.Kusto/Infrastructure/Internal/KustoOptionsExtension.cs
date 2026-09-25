@@ -62,7 +62,7 @@ public sealed class KustoOptionsExtension : RelationalOptionsExtension
     /// Gets the maximum length, in characters, of each <c>.update</c> command in the script that applies
     /// a batch of updates. Kusto rejects a command longer than 2,097,152 characters.
     /// </summary>
-    public int MaxUpdateCommandLength { get; private set; } = 2_000_000;
+    public int MaxUpdateCommandLength { get; private set; } = 2_095_674;
 
     public KustoOptionsExtension() { }
 

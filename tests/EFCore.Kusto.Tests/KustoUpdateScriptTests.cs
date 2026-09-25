@@ -23,11 +23,11 @@ public class KustoUpdateScriptTests
     private const string Database = "SampleDb";
 
     [Fact]
-    public void MaxUpdateCommandLength_defaults_to_2_000_000()
+    public void MaxUpdateCommandLength_defaults_to_2_095_674()
     {
         var builder = new DbContextOptionsBuilder<ListingContext>().UseKusto(Cluster, Database);
 
-        Assert.Equal(2_000_000, builder.Options.FindExtension<KustoOptionsExtension>()!.MaxUpdateCommandLength);
+        Assert.Equal(2_095_674, builder.Options.FindExtension<KustoOptionsExtension>()!.MaxUpdateCommandLength);
     }
 
     [Fact]

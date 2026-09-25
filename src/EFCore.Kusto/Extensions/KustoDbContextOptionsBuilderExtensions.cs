@@ -119,7 +119,7 @@ public static class KustoDbContextOptionsBuilderExtensions
     /// <summary>
     /// Sets the maximum length, in characters, of each <c>.update</c> command in the script that applies
     /// a batch of updates. A batch that exceeds it continues in another command of the same script.
-    /// Defaults to 2,000,000; Kusto rejects a command longer than 2,097,152 characters.
+    /// Defaults to 2,095,674; Kusto rejects a command longer than 2,097,152 characters.
     /// </summary>
     /// <param name="builder">The Kusto options builder being configured.</param>
     /// <param name="length">The maximum length of each <c>.update</c> command.</param>
